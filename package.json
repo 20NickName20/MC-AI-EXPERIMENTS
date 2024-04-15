@@ -1,0 +1,21 @@
+{
+  "name": "ai_exp",
+  "version": "0.1.2",
+  "description": "AI EXP",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "20_NickName_20",
+  "license": "ISC",
+  "dependencies": {
+    "mineflayer": "^4.20.0",
+    "mineflayer-auto-eat": "^3.3.6",
+    "mineflayer-bloodhound": "^0.0.2",
+    "mineflayer-death-event": "^1.0.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-pvp": "^1.3.2",
+    "mineflayer-tool": "^1.2.0",
+    "openai": "^4.33.1"
+  }
+}
