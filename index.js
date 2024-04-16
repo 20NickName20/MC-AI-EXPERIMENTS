@@ -1,11 +1,13 @@
 const mineflayer = require("mineflayer");
-const mcGPT = require("./plugin.js");
+const mcGPT = require("./gpt-for-mc.js");
 const { Movements, pathfinder } = require("mineflayer-pathfinder")
 const bloodhoundPlugin = require("mineflayer-bloodhound")(mineflayer);
 const deathEvent = require("mineflayer-death-event")
 const pvp = require("mineflayer-pvp").plugin
 const autoeat = require("mineflayer-auto-eat").plugin
 const toolPlugin = require("mineflayer-tool").plugin
+
+const config = require("./config.json")
 
 const MARK = {
     username: "mark404",
@@ -33,9 +35,9 @@ let selected = MARK
 
 const bot = mineflayer.createBot({
     username: selected.username,
-    host: "nickname___.aternos.me",
-    port: 38934,
-	version: "1.12.2"
+    host: config.server.ip,
+    port: config.server.port,
+	version: config.server.version
 });
 bot.loadPlugin(pathfinder)
 bloodhoundPlugin(bot);
@@ -63,7 +65,10 @@ bot.once("spawn", ()=>{
 	bot.pvp.movements = bot.defaultMove;
 	bot.pvp.followRange = 2;
 	
-	bot.chat("/login " + selected.username + "_sussybaka123")
+	if (config.server.crackedServerLogin) {
+		bot.chat("/register " + config.server.crackedServerLogin)
+		bot.chat("/login " + config.server.crackedServerLogin)
+	}
 });
 
 bot.on("chat", (username, message)=>{

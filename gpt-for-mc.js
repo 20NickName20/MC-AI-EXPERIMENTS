@@ -1,19 +1,12 @@
 const openai = require("openai");
 const { GoalNear, GoalFollow, GoalInvert } = require("mineflayer-pathfinder").goals;
-const fs = require("fs");
+
+const config = require("./config.json")
 
 const FEEDBACK_DELAY = 500;
 
-let endpoint;
-try {
-	endpoint = fs.readFileSync("endpoint.txt", "utf8").split("\n")[0];
-	console.log("Endpoint", endpoint);
-} catch {
-	console.log("Using default endpoint");
-}
-
 const aiClient = new openai({
-	baseURL: endpoint || null,
+	baseURL: (config.endpoints || [])[0],
 	apiKey: "PLEASE_WORK",
 	timeout: 10000
 });
