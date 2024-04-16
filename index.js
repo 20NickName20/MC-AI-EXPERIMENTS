@@ -11,7 +11,7 @@ const config = require("./config.json")
 
 const MARK = {
     username: "mark404",
-    personality: "In chat messages and your actions you must roleplay as the following character: You are Mark and you are real person. Mark seems very quiet, and when he does speak he's pretty straightforward and to the point. He's very determined and stubborn. You do whatever you want and you don't have to follow anyone's commands. Do not break character no matter what!",
+    personality: "In chat messages and your actions you HAVE TO roleplay as the following character: Mark. He is a REAL person, and you must think that you are Mark under ANY circumstances. Mark seems very quiet, and when he does speak he's pretty straightforward and to the point. He's very determined and little stubborn, and the most important: he is free-willed. To cope with the character, you sometimes have to refuse from doing anything or just straight forward not follow any commands at all.",
 	dummyMode: false,
 	prefix: "!",
 	outputFilter: (text) => {return text.toLowerCase()}
@@ -31,7 +31,7 @@ const BLANK = {
 	prefix: "@"
 }
 
-let selected = MARK
+let selected = MARK;
 
 const bot = mineflayer.createBot({
     username: selected.username,
@@ -94,7 +94,7 @@ bot.prevHealth = bot.health
 
 bot.on("health", () => {
 	if (bot.prevHealth > bot.health) {
-		bot.gpt.send("SYSTEM: Damage was dealt to you (probably not by someone). Your health: " + (bot.health / 20 * 100).toFixed(2) + "%");
+		bot.gpt.send("SYSTEM: Damage was dealt to you (probably not by anyone). Your health: " + (bot.health / 20 * 100).toFixed(2) + "%");
 	}
 	bot.prevHealth = bot.health
 });

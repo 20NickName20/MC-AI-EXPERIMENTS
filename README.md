@@ -22,12 +22,13 @@ npm install
 ```
 
 3. Create `config.json` file
-```js
+```json
 {
     "endpoints": [ // List of custom gpt api endpoints. Leave empty for default.
 
     ],
     "apiKey": "YOUR API KEY", // Insert your private OpenAI api key
+    "model": "gpt-4", // Gpt model
     "server": {
         "ip": "localhost",
         "port": 25565,
