@@ -1,51 +1,58 @@
-const openai = require("openai");
-const { GoalNear, GoalFollow, GoalInvert } = require("mineflayer-pathfinder").goals;
+const openai = require("openai")
+const { GoalNear, GoalFollow, GoalInvert } = require("mineflayer-pathfinder").goals
+const fs = require('fs');
+const { Vec3 } = require("vec3")
 
-const config = require("./config.json")
+const config = require("./config.json");
 
-const FEEDBACK_DELAY = 500;
+const FEEDBACK_DELAY = 500
 
 const aiClient = new openai({
 	baseURL: (config.endpoints || [])[0],
 	apiKey: config.apiKey,
-	timeout: 10000
-});
+	timeout: 30000
+})
 
 async function getChatGPTResponse(bot, messages) {
 	try {
-		//messages = [{ role: "user", content: "Say this is a test" }];
+		//messages = [{ role: "user", content: "Say this is a test" }]
 		const completion = await aiClient.chat.completions.create({
 			model: bot.gpt.model,
 			messages: messages,
-		});
-	
-    	return completion.choices[0].message.content;
+		})
+    	return completion.choices[0].message.content
 	} catch (e) {
 		console.log(e)
-		return "Error: Im sleeping rn"
+		await bot.chat(bot.entity.username + " is sleepy today")
+		throw new Error("Gpt isnt working")
 	}
 }
 
-const DEFAULT_COMMAND_LIST = {
+const COMMAND_LIST = {
 	//"remem": "Saves important data. Usage: remem <key> <value>",
 	//"mem": "Tells you data you saved using remem command. Usage: mem",
 	"pos": "Tells you your xyz coordinates. Usage: pos",
+	"near_blocks": "Returns a list of nearby blocks",
+	"near_entities": "Returns a list of nearby entities",
 	"follow": "Makes you follow a specified entity. Pathfinding is done automatically. Usage: follow <entityName>",
 	"run_away": "Makes you run away from specified entity. Usage: run_away <entityName>",
 	"attack": "Makes you start fighting specified entity. Usage: attack <entityName>",
 	"stop": "Makes you stop moving and stand in place. Also stops attacking. Usage: stop",
 	"lookat": "Makes you look in the direction of a specified entity. Usage: lookat <entityName>",
+	"rotate": "Makes you rotate your head by specified yaw and pitch in radians. Usage: rotate <yaw> <pitch>",
 	"punch": "Punches the specified entity. Usage: punch <entityName>",
 	"sneak": "Activate/deactivate sneaking. Takes one argument which can be either ON or OFF. Usage: sneak <on/off>",
 	"jump": "Makes you jump. Usage: jump",
-	"mine": "Breaks nearest block of specified type. Usage: mine <blockName>",
-	"break": "Breaks one nearest block of specified type. Usage: break <blockName>",
 	"mine": "Breaks multiple of the nearest blocks of specified type. Usage: mine <blockName> <count>",
-	//"place": "Places block you are holding in hand in the world. Usage: place",
+	"goto": "Makes you go to specified coordinates. Usage: goto <x> <y> <z>",
+	"goto_block": "Makes you go to specified block (for entities use follow). Usage: goto <blockName>",
+	"place_here": "Places block from your inventory in the world. Usage: place_here <itemName>",
+	"activate": "Activates specified block. Usage: activate <blockName>",
 	"inv": "Tells you a list of items in your inventory. Usage: inv",
-	"hold": "Switches item in hand to specified item. Usage: hold <itemName>",
+	"equip": "Moves specified item to specified destination. Destination can be: hand, head, torso, legs, feet, off-hand. Usage: equip <itemName> <destination>",
+	"unequip": "Moves item from specified destination. Destination can be: hand, head, torso, legs, feet, off-hand. Usage: equip <destination>",
 	"toss": "Toss items out of inventory. Usage: toss <itemName> <count>",
-};
+}
 
 let COMMAND_PROMPT = `You are a minecraft bot.
 Each line of your response should be either command to use or text to say.
@@ -61,7 +68,7 @@ Use commands promptly to control your character effectively.
 To perform action you MUST use command for that action.
 
 Here are some examples:
-` + "```" + `
+"""
 Event > frank said: hello! follow me
 Respond with the following:
 !follow frank
@@ -92,130 +99,151 @@ Event > SYSTEM: You are being attacked by frank
 Respond with the following:
 !attack frank
 You leave me no choice.
-` + "```" + `
+"""
 
 Please respond in multiple lines with a command then a response.
 Remember to use one line for one command!
 Do not respond to all system messages. You still may use that information.
+You will be given time of request.
 Events will be presented to you, and you should respond accordingly.
-`;
+`
 
 async function getActionsFromCommand(bot, data) {
-	if (bot.gpt.log.length > 24) {
+	if (bot.gpt.log.length + 2 > config.messageLimit) {
 		bot.gpt.log.splice(1, 2)
 	}
 	
-	bot.gpt.log.push({"role": "user", "content": data});
+	//bot.gpt.log.push({"role": "user", "content": data})
+	bot.gpt.log.push({"role": "system", "content": data})
 	let response = ""
 	if (bot.gpt.outputFilter) {
-    	response = bot.gpt.outputFilter(await getChatGPTResponse(bot, bot.gpt.log));
+    	response = bot.gpt.outputFilter(await getChatGPTResponse(bot, bot.gpt.log))
 	} else {
-    	response = await getChatGPTResponse(bot, bot.gpt.log);
+    	response = await getChatGPTResponse(bot, bot.gpt.log)
 	}
 	bot.gpt.log.push({"role": "assistant", "content": response})
+	
+	if (config.saveMessages) {
+		fs.writeFile("messages.json", JSON.stringify(bot.gpt.log), function(err) {
+			if (err) {
+				console.log(err);
+			}
+		});
+	}
 	
 	for (msg of bot.gpt.log) {
 		console.log(msg.role[0] + ": " + msg.content)
 	}
 
-    return response;
+    return response
 }
 
 function findEntity(bot, search="None") {
 	let entity = bot.nearestEntity((entity)=>{
-		let name = entity.username || entity.displayName;
+		let name = entity.username || entity.displayName
 	
-		return name && name.toLowerCase().includes(search.toLowerCase());
-	});
-	return entity;
+		return name && name.toLowerCase().includes(search.toLowerCase())
+	})
+	return entity
 }
 
 function findBlock(bot, search="None") {
 	let block = bot.findBlock({
 		matching: (block) => {
 			try {
-				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "));
+				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
 			} catch {
-				return false;
+				return false
 			}
 		}
 	})
-	return block;
+	return block
 }
 
 function findBlocks(bot, search="None", count) {
 	let blocks = bot.findBlocks({
 		matching: (block) => {
 			try {
-				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "));
+				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
 			} catch {
-				return false;
+				return false
 			}
 		},
 		count: count
 	})
-	return blocks;
+	return blocks
 }
 
-async function gotoBlock(bot, block) {
-	bot.pathfinder.setMovements(bot.defaultMove)
-	bot.pathfinder.setGoal(new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1))
+async function mineBlocks(bot, blockName, count) {
+	let stop = false
+	bot.once("stop_all", () => {
+		stop = true
+	})
+	let mined = 0
 
-	new Promise((resolve, reject) => {
-		let intervalID = setInterval(async () => {
-			if (bot.entity.position.distanceTo(block.position) < 1.5) {
-				clearInterval(intervalID);
-				resolve();
-			}
-		}, 300);
-	}).then(() => {return})
-}
-
-async function mineBlocks(bot, blocks) {
-	for (block of blocks) {
-		await gotoBlock(bot, block);
-		let errored = false;
+	for (let i = 0; i < count; i++) {
+		if (stop) break
+		let block = findBlock(bot, blockName)
+		if (!block) {
+			break
+		}
+		bot.pathfinder.setMovements(bot.defaultMove)
+		let goalBlock = new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1.5)
 		try {
-			bot.tool.equipForBlock(block, {requireHarvest: true});
-		} catch {
-			setTimeout(() => {bot.gpt.send("SYSTEM: You can't break this block");}, FEEDBACK_DELAY);
-			errored = true;
+			await bot.pathfinder.goto(goalBlock, true)
+		} catch (e) {
+			console.log(e)
+			break
 		}
-		if (!errored) {
+		let canBreak = false
+		try {
+			await bot.tool.equipForBlock(block, {requireHarvest: true})
+		} catch (e) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: You can't break this block")}, FEEDBACK_DELAY)
+			canBreak = true
+			console.log(e)
+		}
+		if (!canBreak) {
+			let errored = false
 			try {
-				await bot.dig(block, true, "raycast");
-			} catch {
+				await bot.dig(block, true, "raycast")
+			} catch (e) {
 				console.log("block break err")
+				errored = true
+			}
+			if (!errored) {
+				mined++
 			}
 		}
-		await bot.waitForTicks(5);
+		await bot.waitForTicks(10)
 	}
-	bot.gpt.send("SYSTEM: Done mining blocks!")
+	setTimeout(() => {bot.gpt.send("SYSTEM: Mined " + mined + " blocks!")}, FEEDBACK_DELAY)
+	bot.emit("stop_all")
 }
 
 function findItemInv(bot, search="None") {
-	let items = bot.inventory.items();
-	let foundItem = null;
+	let items = bot.inventory.items()
+	let foundItem = null
 	items.forEach(item => {
 		if (item.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))) {
-			foundItem = item;
+			foundItem = item
 		}
-	});
-	return foundItem;
+	})
+	return foundItem
 }
 
 function findItemInv(bot, search="None") {
-	let items = bot.inventory.items();
-	let foundItem = null;
+	let items = bot.inventory.items()
+	let foundItem = null
 	items.forEach(item => {
 		if (item.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))) {
-			foundItem = item;
+			foundItem = item
 		}
-	});
-	return foundItem;
+	})
+	return foundItem
 }
 
-const DEFAULT_COMMAND_FUNCTIONS = {
+const COMMAND_FUNCTIONS = {
 	"remem": async (bot, [key], fullText)=>{
         bot.gpt.memory[key] = fullText.slice(7 + key.length)
     },
@@ -223,20 +251,20 @@ const DEFAULT_COMMAND_FUNCTIONS = {
 	"mem": async (bot)=>{
 		let fullText = "SYSTEM: Saved data: "
 		for (key in bot.gpt.memory) {
-			fullText += key + "=" + bot.gpt.memory[key] + ";"
+			fullText += key + "=" + bot.gpt.memory[key] + ""
 		}
-		setTimeout(() => {bot.gpt.send(fullText);}, FEEDBACK_DELAY);
+		setTimeout(() => {bot.gpt.send(fullText)}, FEEDBACK_DELAY)
     },
 	
 	"pos": async (bot) => {
-		setTimeout(() => {bot.gpt.send(`SYSTEM: Your position: ${bot.entity.position.x.toFixed(2)} ${bot.entity.position.y.toFixed(2)} ${bot.entity.position.z.toFixed(2)}`);}, FEEDBACK_DELAY);
+		setTimeout(() => {bot.gpt.send(`SYSTEM: Your position: ${bot.entity.position.x.toFixed(2)} ${bot.entity.position.y.toFixed(2)} ${bot.entity.position.z.toFixed(2)}`)}, FEEDBACK_DELAY)
     },
 	
 	"follow": async (bot, [entityName]) => {
 		let entity = findEntity(bot, entityName)
 		if (!entity) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
 		}
 		bot.pathfinder.setMovements(bot.defaultMove)
 		bot.pathfinder.setGoal(new GoalFollow(entity, 2), true)
@@ -245,8 +273,8 @@ const DEFAULT_COMMAND_FUNCTIONS = {
 	"run_away": async (bot, [entityName]) => {
 		let entity = findEntity(bot, entityName)
 		if (!entity) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
 		}
 		bot.pathfinder.setMovements(bot.defaultMove)
 		bot.pathfinder.setGoal(new GoalInvert(new GoalFollow(entity, 50)), true)
@@ -255,72 +283,94 @@ const DEFAULT_COMMAND_FUNCTIONS = {
 	"attack": async (bot, [entityName]) => {
 		let entity = findEntity(bot, entityName)
 		if (!entity || entity.getDroppedItem()) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
 		}
-		bot.pvp.attack(entity);
+		bot.pvp.attack(entity)
     },
 	
 	"stop": async (bot) => {
-		bot.pathfinder.setGoal();
-		bot.pvp.stop();
-		bot.stopDigging();
+		bot.pathfinder.setGoal()
+		bot.pvp.stop()
+		bot.stopDigging()
+		bot.emit("stop_all")
     },
 
     "lookat": async (bot, [entityName]) => {
+		clearInterval(bot.gpt.lookInterval)
 		let entity = findEntity(bot, entityName)
 		if (!entity) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
 		}
-        await bot.lookAt(entity.position.offset(0, (entity || bot.nearestEntity()).height, 0));
+		bot.gpt.lookInterval = setInterval(() => {
+			bot.lookAt(entity.position.offset(0, (entity || bot.nearestEntity()).height, 0))
+		}, 100)
+    },
+
+    "rotate": async (bot, [yaw, pitch]) => {
+		yaw = bot.entity.yaw + (parseFloat(yaw) || 0)
+		pitch = bot.entity.pitch + (parseFloat(pitch) || 0)
+		bot.look(yaw, pitch)
     },
 
     "punch": async (bot, [entityName]) => {
 		let entity = findEntity(bot, entityName)
 		if (!entity) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
 		}
-        await bot.lookAt(entity.position.offset(0, entity.height, 0), true);
-        await bot.attack(entity);
+        await bot.lookAt(entity.position.offset(0, entity.height, 0), true)
+        await bot.attack(entity)
     },
 
     "inv": async (bot) => {
-        let items = bot.inventory.items();
+        let items = bot.inventory.items()
 		if (!items.length) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: You don't have any items");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: You don't have any items")}, FEEDBACK_DELAY)
+			return
  		}
-		let itemList = "SYSTEM: Items you have:";
+		let itemList = "SYSTEM: Items you have:"
 		items.forEach(item => {
-			itemList += " " + item.displayName + " = " + item.count + ";";
-		
-		});
-		setTimeout(() => {bot.gpt.send(itemList);}, FEEDBACK_DELAY);
+			itemList += " " + item.displayName + " = " + item.count
+		})
+		setTimeout(() => {bot.gpt.send(itemList)}, FEEDBACK_DELAY)
     },
 
-    "hold": async (bot, itemName) => {
-		let item = findItemInv(bot, itemName.join(" "));
+    "equip": async (bot, itemName) => {
+		let destination = itemName.pop()
+		let item = findItemInv(bot, itemName.join(" "))
 		
 		if (!item) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Item not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Item not found")}, FEEDBACK_DELAY)
+			return
 		}
-        await bot.equip(item);
+		try {
+        	await bot.equip(item, destination)
+		} catch (e) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Destination not found")}, FEEDBACK_DELAY)
+		}
+    },
+
+    "unequip": async (bot, [destination]) => {
+		try {
+        	await bot.unequip(destination)	
+		} catch (e) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Destination not found")}, FEEDBACK_DELAY)
+		}
     },
 
     "toss": async (bot, itemName)=>{
-		let quantity = parseInt(itemName.pop()) || 1;
-		let item = findItemInv(bot, itemName.join(" "));
+		let quantity = parseInt(itemName.pop()) || 1
+		let item = findItemInv(bot, itemName.join(" "))
 		
 		if (!item) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Item not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Item not found")}, FEEDBACK_DELAY)
+			return
 		}
 
 		try {
-			await bot.toss(item.type, null, quantity);
+			await bot.toss(item.type, null, quantity)
 		} catch {
 			
 		}
@@ -328,117 +378,169 @@ const DEFAULT_COMMAND_FUNCTIONS = {
 
     "sneak": async (bot, [state]) => {
 		if (!state) {
-			await bot.setControlState("sneak", true);
-			await bot.waitForTicks(4);
-			await bot.setControlState("sneak", false);
-			return;
+			await bot.setControlState("sneak", true)
+			await bot.waitForTicks(4)
+			await bot.setControlState("sneak", false)
+			return
 		}
-        if (state.toLowerCase() === "on") bot.setControlState('sneak', true);
-        else if (state.toLowerCase() === "off") bot.setControlState('sneak', false);
+        if (state.toLowerCase() === "on") bot.setControlState('sneak', true)
+        else if (state.toLowerCase() === "off") bot.setControlState('sneak', false)
     },
 	
 	"jump": async (bot) => {
-		await bot.setControlState("jump", true);
-		await bot.waitForTicks(1);
-		await bot.setControlState("jump", false);
-		await bot.waitForTicks(7);
-	},
-	
-	"break": async (bot, blockName) => {
-		let block = findBlock(bot, blockName.join(" "))
-		if (!block) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found");}, FEEDBACK_DELAY);
-			return;
-		}
-		mineBlocks(bot, [block]);
+		await bot.setControlState("jump", true)
+		await bot.waitForTicks(1)
+		await bot.setControlState("jump", false)
+		await bot.waitForTicks(7)
 	},
 	
 	"mine": async (bot, blockName) => {
-		let count = parseInt(blockName.pop()) || 1;
-		let blocks = findBlocks(bot, blockName.join(" "), count);
-		if (!blocks.length) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found");}, FEEDBACK_DELAY);
-			return;
+		let count = parseInt(blockName.pop()) || 1
+		mineBlocks(bot, blockName.join(" "), count)
+	},
+	
+	"place_here": async (bot, itemName) => {
+		let item = findItemInv(bot, itemName.join(" "))
+		
+		if (!item) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Item not found")}, FEEDBACK_DELAY)
+			return
 		}
-		blocks = blocks.map((block) => bot.blockAt(block));
-		mineBlocks(bot, blocks);
+
+		const target_dest = new Vec3(Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y), Math.floor(bot.entity.position.z))
+
+		let buildOffBlock = null
+    	let faceVec = null
+    	const dirs = [new Vec3(0, -1, 0), new Vec3(0, 1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
+    	for (let d of dirs) {
+    	    const block = bot.blockAt(target_dest.plus(d))
+    	    buildOffBlock = block
+    	    faceVec = new Vec3(-d.x, -d.y, -d.z)
+    	    break
+    	}
+
+		bot.pathfinder.setMovements(bot.defaultMove)
+		await bot.equip(item, 'hand')
+		bot.pathfinder.setGoal(new GoalInvert(new GoalNear(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z, 2)), true)
+		await bot.waitForTicks(10)
+		try {
+			await bot.placeBlock(buildOffBlock, faceVec)
+		} catch (err) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Failed to place block")}, FEEDBACK_DELAY)
+		}
+	},
+	
+	"activate": async (bot, blockName) => {
+		let block = findBlock(bot, blockName.join(" "))
+		if (!block) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found")}, FEEDBACK_DELAY)
+			return
+		}
+		try {
+			bot.activateBlock(block)
+		} catch (e) {
+			console.log(e)
+		}
 	},
 	
 	"goto_block": async (bot, blockName) => {
-		let block = findBlock(bot, blockName.join(" "));
+		let block = findBlock(bot, blockName.join(" "))
 		if (!block) {
-			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found");}, FEEDBACK_DELAY);
-			return;
+			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found")}, FEEDBACK_DELAY)
+			return
 		}
-		bot.pathfinder.setMovements(bot.defaultMove);
-		bot.pathfinder.setGoal(new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1));
+		bot.pathfinder.setMovements(bot.defaultMove)
+		bot.pathfinder.setGoal(new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1), true)
 	},
 	
-	"place": async (bot) => {
-		bot.placeBlock();
+	"goto": async (bot, [x, y, z]) => {
+		x = parseFloat(x) || bot.entity.position.x
+		y = parseFloat(y) || bot.entity.position.y
+		z = parseFloat(z) || bot.entity.position.z
+		bot.pathfinder.setMovements(bot.defaultMove)
+		bot.pathfinder.setGoal(new GoalNear(x + 0.5, y + 0.5, z + 0.5, 1), true)
+	},
+	
+	"near_blocks": async (bot) => {
+		let blockNames = findBlocks(bot, "", 1000).map((block) => bot.blockAt(block).displayName)
+		let blockList = "SYSTEM: Blocks near you:"
+		for (blockName of new Set(blockNames)) {
+			if (blockName === "Air") continue;
+			blockList += ` "${blockName}"`
+		}
+		setTimeout(() => {bot.gpt.send(blockList)}, FEEDBACK_DELAY)
+	},
+	
+	"near_entities": async (bot) => {
+		let entityList = "SYSTEM: Entities near you:"
+		console.log(bot.entities)
+		for (entityID in bot.entities) {
+			let entity = bot.entities[entityID]
+			if (bot.entity.position.distanceTo(entity.position) <= 16 && entity.username !== bot.entity.username) {
+				entityList += ` "${entity.username || entity.displayName}"`
+			}
+		}
+		setTimeout(() => {bot.gpt.send(entityList)}, FEEDBACK_DELAY)
+	},
+	
+	"write_book": async (bot, _, fullText) => {
+		fullText = fullText.slice("write_book".length)
+		let pages = []
+		for (let i = 0; i < fullText.length; i += 256) {
+			pages.push(fullText.slice(i, i + 256))
+		}
+		try {
+			await bot.writeBook(36, pages)
+		} catch (e) {
+			console.log(e)
+		}
 	}
-};
+}
 
 async function performActions(bot, actions) {
-    actions = actions.split("\n");
+    actions = actions.split("\n")
 
     for (action of actions) {
-        let tokens = action.split(" ");
+        let tokens = action.split(" ")
 
 		if (tokens[0].startsWith("!")) {
-			let commandFunction = bot.gpt.COMMAND_FUNCTIONS[tokens[0].slice(1).toLowerCase()];
+			let commandFunction = bot.gpt.COMMAND_FUNCTIONS[tokens[0].slice(1).toLowerCase()]
 	
 			if (commandFunction === undefined) {
-				setTimeout(() => {bot.gpt.send("SYSTEM: No such command");}, FEEDBACK_DELAY);
+				setTimeout(() => {bot.gpt.send("SYSTEM: No such command")}, FEEDBACK_DELAY)
 			} else {
-				await commandFunction(bot, tokens.slice(1), action);
+				await commandFunction(bot, tokens.slice(1), action)
 			}
 		} else {
-			bot.chat(action);
+			bot.chat(action)
 		}
 
-        await bot.waitForTicks(bot.gpt.actionDelay);
+        await bot.waitForTicks(bot.gpt.actionDelay)
     }
 }
 
-function plugin(bot, {key, personality, online=true, dummyMode=false, outputFilter}) {	
+function plugin(bot, {key, personality, dummyMode=false, outputFilter}) {	
     bot.gpt = {
-        COMMAND_FUNCTIONS: DEFAULT_COMMAND_FUNCTIONS,
-        COMMAND_LIST: DEFAULT_COMMAND_LIST,
-
+        COMMAND_FUNCTIONS: COMMAND_FUNCTIONS,
+        COMMAND_LIST: COMMAND_LIST,
         actionDelay: 4, // How long to wait between executing commands. (ticks)
         model: config.model,
-        online: online,
         personality: personality,
         log: [],
 		onCooldown: true,
 		dataBus: "",
 		dummyMode: dummyMode,
 		memory: {},
-		outputFilter: outputFilter
-    };
+		outputFilter: outputFilter,
+		lookInterval: null
+    }
 	
-	let listOfCommands = "";
+	let listOfCommands = ""
 	for (key of Object.keys(bot.gpt.COMMAND_LIST)) {
-		listOfCommands += `!${key} -> ${bot.gpt.COMMAND_LIST[key]}\n`;
-	}
-	
-	function initChat() {
-		bot.gpt.log.push({"role": "system", "content": COMMAND_PROMPT.replace("<INSERT COMMANDS HERE>", listOfCommands) + "\n" + bot.gpt.personality})
-		setTimeout(async () => {
-			bot.gpt.onCooldown = false;
-			await bot.gpt.send()
-		}, 1000)
+		listOfCommands += `!${key} -> ${bot.gpt.COMMAND_LIST[key]}\n`
 	}
 
-	if (!bot.gpt.dummyMode) initChat();
-	else bot.gpt.onCooldown = false;
-	
-	for (msg of bot.gpt.log) {
-		console.log(msg.role[0] + ": " + msg.content)
-	}
-
-    if (!bot.registry) bot.registry = require("minecraft-data")(bot.version);
+    if (!bot.registry) bot.registry = require("minecraft-data")(bot.version)
 
     bot.gpt.send = async (data) => {
 		if (data && !bot.gpt.dataBus.endsWith(data)) {
@@ -446,23 +548,47 @@ function plugin(bot, {key, personality, online=true, dummyMode=false, outputFilt
 		}
 		if (bot.gpt.onCooldown) return
 		if (!bot.gpt.dataBus) return
+		clearInterval(bot.gpt.lookInterval)
 		bot.gpt.onCooldown = true
 		console.log("EXECUTING", bot.gpt.dataBus)
 		if (!bot.gpt.dummyMode) {
-			let actions = await getActionsFromCommand(bot, bot.gpt.dataBus.slice(1));
-	
-			performActions(bot, actions);
+			let actions = await getActionsFromCommand(bot, bot.gpt.dataBus.slice(1))
+
+			performActions(bot, actions)
 		}
 		bot.gpt.dataBus = ""
-		setTimeout(async function() {
-			bot.gpt.onCooldown = false;
-			await bot.gpt.send()
+		setTimeout(() => {
+			bot.gpt.onCooldown = false
+			bot.gpt.send()
 		}, 5000)
-    };
+    }
 
     bot.gpt.action = (action)=>{
-        performActions(bot, action);
-    };
+        performActions(bot, action)
+    }
+	
+	function initChat() {
+		try {
+			bot.gpt.log = require("./messages.json")
+		} catch (e) {
+			console.log(e)
+			bot.gpt.log.push({"role": "system", "content": COMMAND_PROMPT.replace("<INSERT COMMANDS HERE>", listOfCommands) + "\n" + bot.gpt.personality})
+		}
+		setTimeout(() => {
+			bot.gpt.onCooldown = false
+			bot.gpt.send()
+		}, 1000)
+	}
+
+	if (!bot.gpt.dummyMode) {
+		initChat()
+	} else {
+		bot.gpt.onCooldown = false
+	}
+	
+	for (msg of bot.gpt.log) {
+		console.log(msg.role[0] + ": " + msg.content)
+	}
 }
 
-module.exports = plugin;
+module.exports = plugin

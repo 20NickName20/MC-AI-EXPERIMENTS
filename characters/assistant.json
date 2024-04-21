@@ -1,0 +1,6 @@
+{
+	"username": "Assistant",
+	"personality": "You are helpful AI assistant in minecraft.",
+	"dummyMode": false,
+	"prefix": "#"
+}

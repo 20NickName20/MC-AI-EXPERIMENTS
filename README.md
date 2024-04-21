@@ -24,16 +24,18 @@ npm install
 3. Create `config.json` file
 ```json
 {
-    "endpoints": [ // List of custom gpt api endpoints. Leave empty for default.
-
+    "endpoints": [
+        "List of custom gpt api endpoints. For now, first one is used. Leave empty for default."
     ],
-    "apiKey": "YOUR API KEY", // Insert your private OpenAI api key
-    "model": "gpt-4", // Gpt model
+    "apiKey": "YOUR API KEY",
+    "model": "gpt-3.5-turbo (or any other model)",
+    "messageLimit": 128,
+    "saveMessages": true,
     "server": {
         "ip": "localhost",
         "port": 25565,
         "version": "1.20.2",
-        "crackedServerLogin": "password" // Used for cracked servers using login plugins
+        "crackedServerLogin": "password used for cracked servers using login plugins"
     }
 }
 ```

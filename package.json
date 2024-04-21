@@ -16,6 +16,7 @@
     "mineflayer-pathfinder": "^2.4.5",
     "mineflayer-pvp": "^1.3.2",
     "mineflayer-tool": "^1.2.0",
-    "openai": "^4.33.1"
+    "openai": "^4.33.1",
+    "prismarine-viewer": "^1.28.0"
   }
 }
