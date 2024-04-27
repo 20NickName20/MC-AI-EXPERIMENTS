@@ -1,9 +1,10 @@
 const openai = require("openai")
-const { GoalNear, GoalFollow, GoalInvert } = require("mineflayer-pathfinder").goals
+const { GoalNear, GoalFollow, GoalInvert, GoalLookAtBlock } = require("mineflayer-pathfinder").goals
 const fs = require('fs');
 const { Vec3 } = require("vec3")
 
 const config = require("./config.json");
+const { join } = require("path");
 
 const FEEDBACK_DELAY = 500
 
@@ -24,16 +25,14 @@ async function getChatGPTResponse(bot, messages) {
 	} catch (e) {
 		console.log(e)
 		await bot.chat(bot.entity.username + " is sleepy today")
-		throw new Error("Gpt isnt working")
 	}
 }
 
 const COMMAND_LIST = {
-	//"remem": "Saves important data. Usage: remem <key> <value>",
-	//"mem": "Tells you data you saved using remem command. Usage: mem",
 	"pos": "Tells you your xyz coordinates. Usage: pos",
-	"near_blocks": "Returns a list of nearby blocks",
-	"near_entities": "Returns a list of nearby entities",
+	"near_blocks": "Returns a list of nearby blocks. Usage: near_blocks",
+	"near_entities": "Returns a list of nearby entities. Usage: near_entities",
+	"read_sign": "Returns text on both sides of nearest sides. Usage: read_sign",
 	"follow": "Makes you follow a specified entity. Pathfinding is done automatically. Usage: follow <entityName>",
 	"run_away": "Makes you run away from specified entity. Usage: run_away <entityName>",
 	"attack": "Makes you start fighting specified entity. Usage: attack <entityName>",
@@ -114,7 +113,7 @@ async function getActionsFromCommand(bot, data) {
 	}
 	
 	//bot.gpt.log.push({"role": "user", "content": data})
-	bot.gpt.log.push({"role": "system", "content": data})
+	bot.gpt.log.push({"role": "user", "content": data})
 	let response = ""
 	if (bot.gpt.outputFilter) {
     	response = bot.gpt.outputFilter(await getChatGPTResponse(bot, bot.gpt.log))
@@ -124,7 +123,7 @@ async function getActionsFromCommand(bot, data) {
 	bot.gpt.log.push({"role": "assistant", "content": response})
 	
 	if (config.saveMessages) {
-		fs.writeFile("messages.json", JSON.stringify(bot.gpt.log), function(err) {
+		fs.writeFile("messages.json", JSON.stringify(bot.gpt.log), (err) => {
 			if (err) {
 				console.log(err);
 			}
@@ -148,6 +147,19 @@ function findEntity(bot, search="None") {
 }
 
 function findBlock(bot, search="None") {
+	let block = bot.findBlock({
+		matching: (block) => {
+			try {
+				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
+			} catch {
+				return false
+			}
+		}
+	})
+	return block
+}
+
+function findContainer(bot) {
 	let block = bot.findBlock({
 		matching: (block) => {
 			try {
@@ -188,7 +200,7 @@ async function mineBlocks(bot, blockName, count) {
 			break
 		}
 		bot.pathfinder.setMovements(bot.defaultMove)
-		let goalBlock = new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1.5)
+		let goalBlock = new GoalLookAtBlock(block.position, bot.world)
 		try {
 			await bot.pathfinder.goto(goalBlock, true)
 		} catch (e) {
@@ -232,17 +244,6 @@ function findItemInv(bot, search="None") {
 	return foundItem
 }
 
-function findItemInv(bot, search="None") {
-	let items = bot.inventory.items()
-	let foundItem = null
-	items.forEach(item => {
-		if (item.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))) {
-			foundItem = item
-		}
-	})
-	return foundItem
-}
-
 const COMMAND_FUNCTIONS = {
 	"remem": async (bot, [key], fullText)=>{
         bot.gpt.memory[key] = fullText.slice(7 + key.length)
@@ -260,28 +261,39 @@ const COMMAND_FUNCTIONS = {
 		setTimeout(() => {bot.gpt.send(`SYSTEM: Your position: ${bot.entity.position.x.toFixed(2)} ${bot.entity.position.y.toFixed(2)} ${bot.entity.position.z.toFixed(2)}`)}, FEEDBACK_DELAY)
     },
 	
-	"follow": async (bot, [entityName]) => {
-		let entity = findEntity(bot, entityName)
+	"follow": async (bot, entityName) => {
+		let entity = findEntity(bot, entityName.join(" "))
 		if (!entity) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
 			return
 		}
-		bot.pathfinder.setMovements(bot.defaultMove)
 		bot.pathfinder.setGoal(new GoalFollow(entity, 2), true)
     },
 	
-	"run_away": async (bot, [entityName]) => {
-		let entity = findEntity(bot, entityName)
+	"goto_entity": async (bot, entityName) => {
+		let entity = findEntity(bot, entityName.join(" "))
+		if (!entity) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
+			return
+		}
+		let promise = bot.pathfinder.goto(new GoalNear(entity.position.x + 0.5, entity.position.y + 0.5, entity.position.z + 0.5, 1))
+		promise.then(() => {
+			setTimeout(() => {bot.gpt.send(`SYSTEM: You are near entity ${entityName.join(" ")} now`)}, FEEDBACK_DELAY)
+		}, () => {})
+    },
+	
+	"run_away": async (bot, entityName) => {
+		let entity = findEntity(bot, entityName.join(" "))
 		if (!entity) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
 			return
 		}
 		bot.pathfinder.setMovements(bot.defaultMove)
-		bot.pathfinder.setGoal(new GoalInvert(new GoalFollow(entity, 50)), true)
+		bot.pathfinder.setGoal(new GoalInvert(new GoalFollow(entity, 100)), true)
     },
 	
-	"attack": async (bot, [entityName]) => {
-		let entity = findEntity(bot, entityName)
+	"attack": async (bot, entityName) => {
+		let entity = findEntity(bot, entityName.join(" "))
 		if (!entity || entity.getDroppedItem()) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
 			return
@@ -296,9 +308,9 @@ const COMMAND_FUNCTIONS = {
 		bot.emit("stop_all")
     },
 
-    "lookat": async (bot, [entityName]) => {
+    "lookat": async (bot, entityName) => {
 		clearInterval(bot.gpt.lookInterval)
-		let entity = findEntity(bot, entityName)
+		let entity = findEntity(bot, entityName.join(" "))
 		if (!entity) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Entity not found")}, FEEDBACK_DELAY)
 			return
@@ -375,6 +387,17 @@ const COMMAND_FUNCTIONS = {
 			
 		}
     },
+	
+	"container_take": async (bot, itemName) => {
+		let quantity = parseInt(itemName.pop()) || 1
+		let sign = findBlock(bot, "sign")
+		if (!sign) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Sign not found")}, FEEDBACK_DELAY)
+			return
+		}
+		let fullText = text.join(" ")
+		bot.updateSign(sign, fullText)
+	},
 
     "sneak": async (bot, [state]) => {
 		if (!state) {
@@ -421,9 +444,8 @@ const COMMAND_FUNCTIONS = {
 
 		bot.pathfinder.setMovements(bot.defaultMove)
 		await bot.equip(item, 'hand')
-		bot.pathfinder.setGoal(new GoalInvert(new GoalNear(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z, 2)), true)
-		await bot.waitForTicks(10)
 		try {
+			await bot.pathfinder.goto(new GoalInvert(new GoalNear(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z, 1.5)))
 			await bot.placeBlock(buildOffBlock, faceVec)
 		} catch (err) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Failed to place block")}, FEEDBACK_DELAY)
@@ -434,6 +456,10 @@ const COMMAND_FUNCTIONS = {
 		let block = findBlock(bot, blockName.join(" "))
 		if (!block) {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found")}, FEEDBACK_DELAY)
+			return
+		}
+		if (bot.entity.position.distanceTo(block.position) > 4) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Block is too far away. Use goto_block first")}, FEEDBACK_DELAY)
 			return
 		}
 		try {
@@ -449,20 +475,27 @@ const COMMAND_FUNCTIONS = {
 			setTimeout(() => {bot.gpt.send("SYSTEM: Block not found")}, FEEDBACK_DELAY)
 			return
 		}
-		bot.pathfinder.setMovements(bot.defaultMove)
-		bot.pathfinder.setGoal(new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1), true)
+		let promise = bot.pathfinder.goto(new GoalNear(block.position.x + 0.5, block.position.y + 0.5, block.position.z + 0.5, 1))
+		promise.then(() => {
+			setTimeout(() => {bot.gpt.send(`SYSTEM: You are near block ${blockName.join(" ")} now`)}, FEEDBACK_DELAY)
+		}, () => {})
 	},
 	
 	"goto": async (bot, [x, y, z]) => {
 		x = parseFloat(x) || bot.entity.position.x
 		y = parseFloat(y) || bot.entity.position.y
 		z = parseFloat(z) || bot.entity.position.z
-		bot.pathfinder.setMovements(bot.defaultMove)
-		bot.pathfinder.setGoal(new GoalNear(x + 0.5, y + 0.5, z + 0.5, 1), true)
+		let promise = bot.pathfinder.goto(new GoalNear(x + 0.5, y + 0.5, z + 0.5, 1))
+		promise.then(() => {
+			setTimeout(() => {bot.gpt.send(`SYSTEM: You are near ${x} ${y} ${z} now`)}, FEEDBACK_DELAY)
+		}, () => {})
 	},
 	
 	"near_blocks": async (bot) => {
-		let blockNames = findBlocks(bot, "", 1000).map((block) => bot.blockAt(block).displayName)
+		let blockNames = findBlocks(bot, "", 1000).map((blockPos) => {
+			let block = bot.blockAt(blockPos)
+			return block.displayName
+		})
 		let blockList = "SYSTEM: Blocks near you:"
 		for (blockName of new Set(blockNames)) {
 			if (blockName === "Air") continue;
@@ -473,7 +506,6 @@ const COMMAND_FUNCTIONS = {
 	
 	"near_entities": async (bot) => {
 		let entityList = "SYSTEM: Entities near you:"
-		console.log(bot.entities)
 		for (entityID in bot.entities) {
 			let entity = bot.entities[entityID]
 			if (bot.entity.position.distanceTo(entity.position) <= 16 && entity.username !== bot.entity.username) {
@@ -481,6 +513,27 @@ const COMMAND_FUNCTIONS = {
 			}
 		}
 		setTimeout(() => {bot.gpt.send(entityList)}, FEEDBACK_DELAY)
+	},
+	
+	"read_sign": async (bot) => {
+		let sign = findBlock(bot, "sign")
+		if (!sign) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Sign not found")}, FEEDBACK_DELAY)
+			return
+		}
+		let text = sign.getSignText()
+
+		setTimeout(() => {bot.gpt.send("SYSTEM: Text on sign: Front side: \"\"\"\n" + text[0] + "\n\"\"\"\nBack side: \"\"\"\n" + text[1] + "\n\"\"\"")}, FEEDBACK_DELAY)
+	},
+	
+	"write_sign": async (bot, text) => {
+		let sign = findBlock(bot, "sign")
+		if (!sign) {
+			setTimeout(() => {bot.gpt.send("SYSTEM: Sign not found")}, FEEDBACK_DELAY)
+			return
+		}
+		let fullText = text.join(" ")
+		bot.updateSign(sign, fullText)
 	},
 	
 	"write_book": async (bot, _, fullText) => {
@@ -504,7 +557,12 @@ async function performActions(bot, actions) {
         let tokens = action.split(" ")
 
 		if (tokens[0].startsWith("!")) {
-			let commandFunction = bot.gpt.COMMAND_FUNCTIONS[tokens[0].slice(1).toLowerCase()]
+			let command = tokens[0].slice(1).toLowerCase()
+			if (config.disabledCommands.includes(command)) {
+				console.log("tried to use disabled command")
+				continue
+			}
+			let commandFunction = bot.gpt.COMMAND_FUNCTIONS[command]
 	
 			if (commandFunction === undefined) {
 				setTimeout(() => {bot.gpt.send("SYSTEM: No such command")}, FEEDBACK_DELAY)

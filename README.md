@@ -36,7 +36,8 @@ npm install
         "port": 25565,
         "version": "1.20.2",
         "crackedServerLogin": "password used for cracked servers using login plugins"
-    }
+    },
+    "disabledCommands": ["list all disabled commands here"]
 }
 ```
 

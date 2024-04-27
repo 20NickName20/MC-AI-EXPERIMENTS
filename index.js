@@ -41,6 +41,16 @@ bot.once("spawn", () => {
 	bot.defaultMove.digCost = 15
 	bot.defaultMove.placeCost = 5
 	bot.defaultMove.canOpenDoors = true
+	bot.defaultMove.allow1by1towers = false
+	bot.pathfinder.setMovements(bot.defaultMove)
+	
+	for (blockID in bot.registry.blocks) {
+		let block = bot.registry.blocks[blockID]
+		if (block.name.toLowerCase().includes("door")) {
+			console.log(`Added ${block.name} to carpet list`)
+			bot.defaultMove.carpets.add(block.id)
+		}
+	}
 		
 	bot.pvp.movements = bot.defaultMove
 	bot.pvp.followRange = 2
@@ -96,7 +106,7 @@ bot.on("attackedTarget", () => {
 })
 
 bot.on("stoppedAttacking", () => {
-	bot.gpt.send("SYSTEM: you have stopped attacking the target")
+	bot.gpt.send("SYSTEM: You have stopped attacking the target")
 })
 
 bot.on("respawn", () => {
