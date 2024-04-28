@@ -6,11 +6,10 @@ const deathEvent = require("mineflayer-death-event")
 const pvp = require("mineflayer-pvp").plugin
 const autoeat = require("mineflayer-auto-eat").plugin
 const toolPlugin = require("mineflayer-tool").plugin
-const mineflayerViewer = require('prismarine-viewer').mineflayer
 
 const config = require("./config.json")
 
-let character = require("./characters/blank.json")
+let character = require("./characters/mark.json")
 character.outputFilter = (text) => {return text.toLowerCase()}
 
 const bot = mineflayer.createBot({
@@ -59,8 +58,6 @@ bot.once("spawn", () => {
 		bot.chat("/register " + config.server.crackedServerLogin)
 		bot.chat("/login " + config.server.crackedServerLogin)
 	}
-
-	mineflayerViewer(bot, { port: 3000 })
 })
 
 bot.on("chat", (username, message) => {

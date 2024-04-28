@@ -4,7 +4,6 @@ const fs = require('fs');
 const { Vec3 } = require("vec3")
 
 const config = require("./config.json");
-const { join } = require("path");
 
 const FEEDBACK_DELAY = 500
 
