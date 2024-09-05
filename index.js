@@ -45,8 +45,7 @@ bot.once("spawn", () => {
 	
 	for (blockID in bot.registry.blocks) {
 		let block = bot.registry.blocks[blockID]
-		if (block.name.toLowerCase().includes("door")) {
-			console.log(`Added ${block.name} to carpet list`)
+		if (block.name.toLowerCase().includes("door") || block.name.toLowerCase().includes("gate")) {
 			bot.defaultMove.carpets.add(block.id)
 		}
 	}
@@ -58,6 +57,9 @@ bot.once("spawn", () => {
 		bot.chat("/register " + config.server.crackedServerLogin)
 		bot.chat("/login " + config.server.crackedServerLogin)
 	}
+
+	// UNCOMMENT IF IT CANNOT DETECT CHAT MESSAGES
+	// bot.chatAddPattern(/!(.*)/, "chat_message_any")
 })
 
 bot.on("chat", (username, message) => {
@@ -70,6 +72,12 @@ bot.on("chat", (username, message) => {
 	}
 	bot.gpt.send(username + " said: " + message.slice(character.prefix.length))
 })
+
+setTimeout(() => {
+	bot.on("chat_message_any", (message) => {
+		bot.gpt.send("SYSTEM: Chat message: " + message)
+	})
+}, 2000)
 
 bot.on("onCorrelateAttack", (attacker, victim, weapon) => {
 	let victimText = (victim.username === bot.entity.username) ? "You are" : ((victim.displayName || victim.username ) + " is")
@@ -95,6 +103,21 @@ bot.on("playerCollect", (collector, collected) => {
 	if (!collected.getDroppedItem()) return
 	if (collector.username === bot.entity.username) {
 		bot.gpt.send("SYSTEM: You just have picked up " + collected.getDroppedItem().displayName + " x" + collected.getDroppedItem().count + ".")
+	}
+})
+
+bot.nearEntities = []
+
+bot.on("entityMoved", (entity) => {
+	if (entity.getDroppedItem()) return
+	if (entity.type === "orb") return
+	let isNear = bot.entity.position.distanceTo(entity.position) <= 10
+	if (bot.nearEntities.includes(entity) && !isNear) {
+		bot.gpt.send(`SYSTEM: Entity "${entity.displayName || entity.username}" is no longer near you`)
+		bot.nearEntities.splice(bot.nearEntities.indexOf(entity), 1)
+	} else if (!bot.nearEntities.includes(entity) && isNear) {
+		bot.gpt.send(`SYSTEM: Entity "${entity.displayName || entity.username}" is now near you`)
+		bot.nearEntities.push(entity)
 	}
 })
 

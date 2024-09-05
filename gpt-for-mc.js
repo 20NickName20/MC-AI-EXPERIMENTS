@@ -10,7 +10,7 @@ const FEEDBACK_DELAY = 500
 const aiClient = new openai({
 	baseURL: (config.endpoints || [])[0],
 	apiKey: config.apiKey,
-	timeout: 30000
+	timeout: 60000
 })
 
 async function getChatGPTResponse(bot, messages) {
@@ -18,12 +18,16 @@ async function getChatGPTResponse(bot, messages) {
 		//messages = [{ role: "user", content: "Say this is a test" }]
 		const completion = await aiClient.chat.completions.create({
 			model: bot.gpt.model,
-			messages: messages,
+			messages: messages
 		})
+		if (completion.choices[0].message.content.startsWith("SERVER_ERROR")) {
+			throw new Error(completion.choices[0].message.content)
+		}
     	return completion.choices[0].message.content
 	} catch (e) {
 		console.log(e)
-		await bot.chat(bot.entity.username + " is sleepy today")
+		await bot.chat(String(e))
+		await bot.quit()
 	}
 }
 
@@ -55,7 +59,7 @@ const COMMAND_LIST = {
 let COMMAND_PROMPT = `You are a minecraft bot.
 Each line of your response should be either command to use or text to say.
 Arguments to these commands are seperated by spaces.
-Commands should be prefixed with "!".
+Commands (AKA actions) SHOULD be prefixed with "!".
 
 You must use the following commands to control your minecraft character:
 <INSERT COMMANDS HERE>
@@ -139,8 +143,8 @@ async function getActionsFromCommand(bot, data) {
 function findEntity(bot, search="None") {
 	let entity = bot.nearestEntity((entity)=>{
 		let name = entity.username || entity.displayName
-	
-		return name && name.toLowerCase().includes(search.toLowerCase())
+		//bot.lookAt(entity.position.offset(0, entity.height, 0))
+		return name && (name.toLowerCase().includes(search.toLowerCase()) || search.toLowerCase().includes(name.toLowerCase()))
 	})
 	return entity
 }
@@ -149,13 +153,32 @@ function findBlock(bot, search="None") {
 	let block = bot.findBlock({
 		matching: (block) => {
 			try {
-				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
-			} catch {
+				let doesMatch = block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
+				//if (doesMatch) bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
+				return doesMatch
+			} catch (e) {
+				//console.error(e)
 				return false
 			}
 		}
 	})
 	return block
+}
+
+function findBlocks(bot, search="None", count) {
+	let blocks = bot.findBlocks({
+		matching: (block) => {
+			try {
+				let doesMatch = block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
+				//if (doesMatch) bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
+				return doesMatch
+			} catch (e) {
+				return false
+			}
+		},
+		count: count
+	})
+	return blocks
 }
 
 function findContainer(bot) {
@@ -169,20 +192,6 @@ function findContainer(bot) {
 		}
 	})
 	return block
-}
-
-function findBlocks(bot, search="None", count) {
-	let blocks = bot.findBlocks({
-		matching: (block) => {
-			try {
-				return block.displayName.toLowerCase().includes(search.toLowerCase().replace("_", " "))
-			} catch {
-				return false
-			}
-		},
-		count: count
-	})
-	return blocks
 }
 
 async function mineBlocks(bot, blockName, count) {
@@ -244,6 +253,10 @@ function findItemInv(bot, search="None") {
 }
 
 const COMMAND_FUNCTIONS = {
+	"say": async (bot, _, fullText)=>{
+        await bot.chat(fullText.slice(5))
+    },
+
 	"remem": async (bot, [key], fullText)=>{
         bot.gpt.memory[key] = fullText.slice(7 + key.length)
     },
@@ -417,7 +430,9 @@ const COMMAND_FUNCTIONS = {
 	},
 	
 	"mine": async (bot, blockName) => {
-		let count = parseInt(blockName.pop()) || 1
+		let count
+		if (blockName.length == 1) count = 1
+		else count = parseInt(blockName.pop()) || 1
 		mineBlocks(bot, blockName.join(" "), count)
 	},
 	
@@ -555,8 +570,10 @@ async function performActions(bot, actions) {
     for (action of actions) {
         let tokens = action.split(" ")
 
-		if (tokens[0].startsWith("!")) {
-			let command = tokens[0].slice(1).toLowerCase()
+		if (tokens[0].startsWith("!") || Object.keys(COMMAND_FUNCTIONS).includes(tokens[0])) {
+			let command
+			if (tokens[0].startsWith("!")) command = tokens[0].slice(1).toLowerCase()
+			else command = tokens[0].toLowerCase()
 			if (config.disabledCommands.includes(command)) {
 				console.log("tried to use disabled command")
 				continue
@@ -600,7 +617,7 @@ function plugin(bot, {key, personality, dummyMode=false, outputFilter}) {
     if (!bot.registry) bot.registry = require("minecraft-data")(bot.version)
 
     bot.gpt.send = async (data) => {
-		if (data && !bot.gpt.dataBus.endsWith(data)) {
+		if (data) {
 			bot.gpt.dataBus += "\n" + data
 		}
 		if (bot.gpt.onCooldown) return
@@ -609,9 +626,10 @@ function plugin(bot, {key, personality, dummyMode=false, outputFilter}) {
 		bot.gpt.onCooldown = true
 		console.log("EXECUTING", bot.gpt.dataBus)
 		if (!bot.gpt.dummyMode) {
-			let actions = await getActionsFromCommand(bot, bot.gpt.dataBus.slice(1))
-
-			performActions(bot, actions)
+			let actionsPromise = getActionsFromCommand(bot, bot.gpt.dataBus.slice(1))
+			actionsPromise.then((actions) => {
+				performActions(bot, actions)
+			})
 		}
 		bot.gpt.dataBus = ""
 		setTimeout(() => {
