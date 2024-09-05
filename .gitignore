@@ -1,8 +1,8 @@
 config.json
 test.js
 messages.json
-characters/blank.json
-characters/mark.json
+
+./characters/mark.json
 
 # Logs
 logs
